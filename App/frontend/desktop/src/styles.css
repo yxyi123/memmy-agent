@@ -1687,7 +1687,8 @@ body.memmy-platform-windows:not(.memmy-window-fullscreen) .app-frame-main--windo
 }
 
 .agent-environment-toggle,
-.agent-environment-panel__actions button {
+.agent-environment-panel__actions button,
+.agent-browser-preview-panel__header button {
   display: inline-flex;
   width: 30px;
   height: 30px;
@@ -1703,20 +1704,23 @@ body.memmy-platform-windows:not(.memmy-window-fullscreen) .app-frame-main--windo
 
 .agent-environment-toggle:hover,
 .agent-environment-toggle--active,
-.agent-environment-panel__actions button:hover {
+.agent-environment-panel__actions button:hover,
+.agent-browser-preview-panel__header button:hover {
   border-color: color-mix(in srgb, var(--color-border-stone) 46%, transparent);
   background: color-mix(in srgb, var(--color-text-ink) 6%, transparent);
   color: var(--color-text-ink);
 }
 
 .agent-environment-toggle:focus-visible,
-.agent-environment-panel button:focus-visible {
+.agent-environment-panel button:focus-visible,
+.agent-browser-preview-panel button:focus-visible {
   outline: 2px solid color-mix(in srgb, var(--color-action-sky) 48%, transparent);
   outline-offset: 2px;
 }
 
 .agent-workspace-layout {
   --agent-environment-panel-width: 300px;
+  --agent-browser-preview-panel-width: 440px;
   --agent-environment-panel-gutter: 24px;
   --agent-conversation-shift: 112px;
 
@@ -1750,6 +1754,10 @@ body.memmy-platform-windows:not(.memmy-window-fullscreen) .app-frame-main--windo
     transform: translateX(calc(0px - var(--agent-conversation-shift)));
   }
 
+  .agent-workspace-layout--browser-preview-open .agent-conversation-content {
+    transform: translateX(-160px);
+  }
+
   .agent-workspace-layout--environment-open .agent-scroll-to-bottom-fab {
     right: calc(50% + var(--agent-conversation-shift));
   }
@@ -1772,6 +1780,88 @@ body.memmy-platform-windows:not(.memmy-window-fullscreen) .app-frame-main--windo
   box-shadow: 0 18px 48px color-mix(in srgb, var(--color-text-ink) 16%, transparent);
   color: var(--color-text-ink);
   font-family: var(--font-sans);
+}
+
+.agent-browser-preview-panel {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 1000;
+  display: flex;
+  width: min(var(--agent-browser-preview-panel-width), calc(100% - 24px));
+  max-height: calc(100% - 24px);
+  min-width: 0;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-border-stone) 46%, transparent);
+  border-radius: 20px;
+  background: var(--color-background-paper);
+  box-shadow: 0 18px 48px color-mix(in srgb, var(--color-text-ink) 16%, transparent);
+  color: var(--color-text-ink);
+}
+
+.agent-browser-preview-panel__header {
+  display: flex;
+  min-height: 54px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px 9px 16px;
+  border-bottom: 1px solid color-mix(in srgb, var(--color-border-stone) 34%, transparent);
+}
+
+.agent-browser-preview-panel__header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 650;
+}
+
+.agent-browser-preview-panel__body {
+  min-height: 0;
+  overflow: auto;
+}
+
+.agent-browser-preview-panel__location {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  padding: 10px 14px;
+  font-size: 12px;
+}
+
+.agent-browser-preview-panel__location strong,
+.agent-browser-preview-panel__location span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-browser-preview-panel__location span {
+  color: color-mix(in srgb, var(--color-text-ink) 55%, transparent);
+}
+
+.agent-browser-preview-panel__body img {
+  display: block;
+  width: 100%;
+  height: auto;
+  background: var(--color-content-base);
+}
+
+.agent-browser-preview-panel__empty,
+.agent-browser-preview-panel__status {
+  margin: 0;
+  padding: 14px 16px;
+  color: color-mix(in srgb, var(--color-text-ink) 55%, transparent);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+.agent-browser-preview-panel__status {
+  border-top: 1px solid color-mix(in srgb, var(--color-border-stone) 30%, transparent);
 }
 
 .agent-environment-panel__header {

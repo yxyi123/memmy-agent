@@ -38,6 +38,7 @@ import type {
   WebuiQueueMessageDescriptor,
   WebuiQueueSnapshotDescriptor,
 } from "../../core/agent-runtime/loop.js";
+import type { BrowserPreviewCapture } from "../../core/agent-runtime/tools/browser.js";
 import { getMediaDir, getWorkspacePath } from "../../config/paths.js";
 import type { CronService } from "../../cron/service.js";
 import { goalStateWsBlob, type GoalStatus } from "../../core/session/goal-state.js";
@@ -201,6 +202,7 @@ type WebSocketChannelOptions = {
   modelSelectionResolver?: ((input: ModelSelectionInput) => ResolvedModelSelection | null) | null;
   cancelActiveTasks?: (sessionKey: string) => Promise<number>;
   closeBrowserChat?: (channel: string, chatId: string) => Promise<void>;
+  captureBrowserPreview?: (chatId: string, sessionKey: string) => Promise<BrowserPreviewCapture | null>;
   fileMemoryEnabled?: boolean;
   goalControlHandler?: (request: GoalControlRequest) => Promise<GoalControlResult>;
   activeGoalStopHandler?: (sessionKey: string) => Promise<boolean>;
@@ -691,6 +693,7 @@ export class WebSocketChannel extends BaseChannel {
     operation: () => Promise<T>,
   ) => Promise<T>) | null = null;
   closeBrowserChat: ((channel: string, chatId: string) => Promise<void>) | null = null;
+  captureBrowserPreview: ((chatId: string, sessionKey: string) => Promise<BrowserPreviewCapture | null>) | null = null;
   server: any = null;
   channelAdmin: ChannelAdminApi | null = null;
   webuiTitleService: WebuiTitleService | null = null;
@@ -735,6 +738,7 @@ export class WebSocketChannel extends BaseChannel {
     this.fileMemoryEnabled = options.fileMemoryEnabled === true;
     this.cancelActiveTasks = options.cancelActiveTasks ?? config?.cancelActiveTasks ?? null;
     this.closeBrowserChat = options.closeBrowserChat ?? config?.closeBrowserChat ?? null;
+    this.captureBrowserPreview = options.captureBrowserPreview ?? config?.captureBrowserPreview ?? null;
     this.goalControlHandler = options.goalControlHandler ?? config?.goalControlHandler;
     this.activeGoalStopHandler = options.activeGoalStopHandler ?? config?.activeGoalStopHandler;
     this.getWebuiQueueSnapshot = options.getWebuiQueueSnapshot ?? config?.getWebuiQueueSnapshot;
@@ -3884,6 +3888,49 @@ export class WebSocketChannel extends BaseChannel {
       await this.sendRunStatusSnapshot(connection, chatId);
       await this.sendWebuiQueueSnapshot(connection, chatId);
       await this.maybePushActiveGoalState(chatId);
+      return;
+    }
+    if (type === "browser_preview_request") {
+      const chatId = envelope.chat_id;
+      const requestId = envelope.request_id;
+      if (!isValidGuiChatId(chatId) || typeof requestId !== "string" || !UUID_RE.test(requestId)) return;
+      if (this.connectionSurface.get(connection) === "tui"
+        || !this.connectionChats.get(connection)?.has(chatId)) return;
+      const sessionKey = this.canonicalSessionKeyForChatId(chatId);
+      if (!sessionKey || !this.captureBrowserPreview) return;
+      const expectedTurnId = envelope.expected_turn_id == null
+        ? null
+        : typeof envelope.expected_turn_id === "string" ? envelope.expected_turn_id : undefined;
+      if (expectedTurnId === undefined) return;
+      const activeTurnId = this.activeTurnIdByChatId.get(chatId) ?? null;
+      if (expectedTurnId !== activeTurnId) return;
+      let capture: BrowserPreviewCapture | null;
+      let failed = false;
+      try {
+        capture = await this.captureBrowserPreview(chatId, sessionKey);
+      } catch {
+        capture = null;
+        failed = true;
+      }
+      if ((this.activeTurnIdByChatId.get(chatId) ?? null) !== activeTurnId
+        || this.canonicalSessionKeyForChatId(chatId) !== sessionKey
+        || !this.connectionChats.get(connection)?.has(chatId)) return;
+      await this.sendEvent(connection, "browser_preview", {
+        chat_id: chatId,
+        request_id: requestId,
+        turn_id: activeTurnId,
+        status: capture?.status ?? (failed ? "error" : "empty"),
+        ...(capture ? {
+          session_id: capture.sessionId,
+          page_id: capture.pageId,
+          sequence: capture.sequence,
+          captured_at: capture.capturedAt,
+          url: capture.url,
+          title: capture.title,
+          image_data_url: capture.imageDataUrl,
+          error: capture.error,
+        } : {}),
+      });
       return;
     }
     if (type === "status") {

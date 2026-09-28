@@ -1213,6 +1213,41 @@ describe("memmy-agent client", () => {
     unsubscribe();
   });
 
+  it("sends preview requests for the current generation without queuing stale frames", async () => {
+    const sockets: FakeSocket[] = [];
+    const client = createMemmyAgentClient({
+      baseUrl: "https://agent.local:18980",
+      clientId: "frontend-test",
+      fetchFn: vi.fn(async () => json(bootstrap)) as typeof fetch,
+      webSocketFactory: (url) => {
+        const socket = new FakeSocket(url);
+        sockets.push(socket);
+        return socket;
+      }
+    });
+    const connection = await connectReady(client, sockets);
+    const requestId = connection.requestBrowserPreview("chat-2", null, 1);
+    expect(sockets[0]?.sent.map((item) => JSON.parse(item))).toContainEqual({
+      type: "browser_preview_request",
+      chat_id: "chat-2",
+      request_id: requestId,
+      expected_turn_id: null,
+    });
+
+    sockets[0]?.emit({ event: "browser_preview", chat_id: "chat-2", request_id: requestId, status: "ready" });
+    const frames: MemmyAgentWsEvent[] = [];
+    connection.onChat("chat-2", (event) => frames.push(event));
+    expect(frames).toEqual([]);
+
+    const nextRequestId = connection.requestBrowserPreview("chat-2", null, 1);
+    sockets[0]?.emit({ event: "browser_preview", chat_id: "chat-2", request_id: nextRequestId, status: "empty" });
+    expect(frames).toEqual([expect.objectContaining({
+      event: "browser_preview",
+      request_id: nextRequestId,
+      connection_generation: 1,
+    })]);
+  });
+
   it("routes status_result events only through the status result handler", async () => {
     const sockets: FakeSocket[] = [];
     const client = createMemmyAgentClient({

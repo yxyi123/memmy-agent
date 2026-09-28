@@ -109,7 +109,7 @@ import { ExecSessionManager } from "./tools/exec-session.js";
 import { MessageTool, type MessageSendCallback } from "./tools/message.js";
 import { FileStateStore } from "./tools/file-state.js";
 import { connectMissingServers, handleRuntimeControl, reloadLock, runtimeLines as mcpRuntimeLines, sessionExtra as mcpSessionExtra } from "./tools/mcp.js";
-import { BrowserSessionManager, type BrowserScope } from "./tools/browser.js";
+import { BrowserSessionManager, type BrowserPreviewCapture, type BrowserScope } from "./tools/browser.js";
 import { ContextBuilder } from "./context.js";
 import { BUILTIN_SKILLS_DIR } from "./skills.js";
 import {
@@ -1161,6 +1161,10 @@ export class AgentLoop {
 
   async closeBrowserChat(channel: string, chatId: string): Promise<void> {
     await this.browserSessionManager.closeChat(channel, chatId);
+  }
+
+  async captureBrowserPreview(chatId: string, sessionKey: string): Promise<BrowserPreviewCapture | null> {
+    return this.browserSessionManager.capturePreview(chatId, sessionKey);
   }
 
   async closeMcp(): Promise<void> {

@@ -668,6 +668,7 @@ export function AgentRuntimeBridge(props: {
     chatUnsubscribeRef.current?.();
     subscribedChatRef.current = chatId;
     chatUnsubscribeRef.current = nextConnection.onChat(chatId, (event) => {
+      if (event.event === "browser_preview") return;
       dispatch(agentActions.wsEventReceived(event));
     });
   }, [dispatch]);

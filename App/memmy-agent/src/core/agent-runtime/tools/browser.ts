@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import type { Browser, BrowserContext } from "playwright";
 import type { BrowserToolsConfig } from "../../../config/schema.js";
 import { Tool, type ToolExecutionContext } from "./base.js";
@@ -52,6 +53,26 @@ export type BrowserLocalPreviewContext = {
   workspace: string;
   readonlyRoots: readonly string[];
 };
+export type BrowserPreviewOwner = {
+  chatId: string;
+  sessionKey: string;
+  turnId: string | null;
+};
+export type BrowserPreviewCapture = {
+  sessionId: string;
+  pageId: string | null;
+  sequence: number;
+  capturedAt: number;
+  url: string;
+  title: string;
+  status: "loading" | "ready" | "error";
+  imageDataUrl?: string;
+  error?: string;
+  turnId: string | null;
+};
+
+const PREVIEW_MIN_INTERVAL_MS = 1_000;
+const PREVIEW_MAX_IMAGE_BYTES = 2_000_000;
 
 type BrowserToolDefinition = {
   name: BrowserToolName;
@@ -87,6 +108,11 @@ type BrowserSession = {
   pendingCalls: number;
   closed: boolean;
   mutex: AsyncMutex;
+  previewOwner: BrowserPreviewOwner | null;
+  previewSessionId: string;
+  previewPageIds: WeakMap<object, string>;
+  previewSequence: number;
+  previewLastCapture: BrowserPreviewCapture | null;
 };
 
 class AsyncMutex {
@@ -489,6 +515,11 @@ export class BrowserSessionManager {
         pendingCalls: initialPendingCalls,
         closed: false,
         mutex: new AsyncMutex(),
+        previewOwner: null,
+        previewSessionId: randomUUID(),
+        previewPageIds: new WeakMap(),
+        previewSequence: 0,
+        previewLastCapture: null,
       };
       this.sessions.set(key, session);
       for (const transport of [
@@ -541,6 +572,7 @@ export class BrowserSessionManager {
     params: Record<string, any>,
     abortSignal: AbortSignal | null = null,
     localPreviewContext: BrowserLocalPreviewContext | null = null,
+    previewOwner: BrowserPreviewOwner | null = null,
   ): Promise<string | Array<Record<string, any>>> {
     await this.ensureReadyForTool(abortSignal);
     if (!this.definitions.has(name)) throw new Error(`browser tool '${name}' is unavailable`);
@@ -553,6 +585,7 @@ export class BrowserSessionManager {
         let candidatePreview: BrowserPreviewLease | null = null;
         try {
           if (session.closed) throw new Error("browser session closed");
+          if (previewOwner) session.previewOwner = previewOwner;
           if (abortSignal?.aborted) {
             const error = new Error("browser tool call cancelled");
             error.name = "AbortError";
@@ -604,6 +637,91 @@ export class BrowserSessionManager {
     } finally {
       session.pendingCalls = Math.max(0, session.pendingCalls - 1);
     }
+  }
+
+  /** Capture the MCP-selected tab in the existing browser context, without opening another page. */
+  async capturePreview(chatId: string, sessionKey: string): Promise<BrowserPreviewCapture | null> {
+    const session = [...this.sessions.values()]
+      .filter((candidate) => !candidate.closed
+        && candidate.previewOwner?.chatId === chatId
+        && candidate.previewOwner.sessionKey === sessionKey)
+      .sort((left, right) => right.lastUsedAt - left.lastUsedAt)[0];
+    if (!session) return null;
+    const owner = session.previewOwner!;
+    const emptyCapture = (status: BrowserPreviewCapture["status"], error?: string): BrowserPreviewCapture => ({
+      sessionId: session.previewSessionId,
+      pageId: session.previewLastCapture?.pageId ?? null,
+      sequence: session.previewSequence,
+      capturedAt: session.previewLastCapture?.capturedAt ?? Date.now(),
+      url: session.previewLastCapture?.url ?? "",
+      title: session.previewLastCapture?.title ?? "",
+      status,
+      ...(error ? { error } : {}),
+      turnId: owner.turnId,
+    });
+    if (session.pendingCalls > 0) return emptyCapture("loading");
+    return session.mutex.runExclusive(async () => {
+      if (session.closed || this.sessions.get(session.key) !== session) return null;
+      if (session.pendingCalls > 0) return emptyCapture("loading");
+      if (session.context.pages().length === 0) {
+        session.previewLastCapture = null;
+        return null;
+      }
+      const now = Date.now();
+      if (session.previewLastCapture && now - session.previewLastCapture.capturedAt < PREVIEW_MIN_INTERVAL_MS) {
+        return session.previewLastCapture;
+      }
+      session.pendingCalls += 1;
+      try {
+        const tabResult = await session.connection.client.callTool(
+          { name: "browser_tabs", arguments: { action: "list" } },
+          undefined,
+          { timeout: 5_000, maxTotalTimeout: 5_000 },
+        );
+        if (tabResult.isError) throw new Error("browser tab lookup failed");
+        const tabsText = (Array.isArray(tabResult.content) ? tabResult.content : [])
+          .filter((block: any) => block?.type === "text")
+          .map((block: any) => String(block.text ?? ""))
+          .join("\n");
+        const current = /^- (\d+): \(current\) \[.*\]\((.*)\)(?: \[crashed\])?$/m.exec(tabsText);
+        if (!current) throw new Error("browser has no selected page");
+        const page = session.context.pages()[Number(current[1])];
+        if (!page || page.isClosed() || page.url() !== current[2]) {
+          throw new Error("selected browser page identity changed");
+        }
+        const [title, image] = await Promise.all([
+          page.title(),
+          page.screenshot({ type: "jpeg", quality: 65, scale: "css", timeout: 5_000 }),
+        ]);
+        if (image.length > PREVIEW_MAX_IMAGE_BYTES) throw new Error("browser preview frame exceeds size limit");
+        if (session.closed || this.sessions.get(session.key) !== session || page.isClosed()) return null;
+        if (page.url() !== current[2]) throw new Error("selected browser page changed during capture");
+        let pageId = session.previewPageIds.get(page);
+        if (!pageId) {
+          pageId = randomUUID();
+          session.previewPageIds.set(page, pageId);
+        }
+        const capture: BrowserPreviewCapture = {
+          sessionId: session.previewSessionId,
+          pageId,
+          sequence: ++session.previewSequence,
+          capturedAt: Date.now(),
+          url: page.url(),
+          title,
+          status: "ready",
+          imageDataUrl: `data:image/jpeg;base64,${image.toString("base64")}`,
+          turnId: owner.turnId,
+        };
+        session.previewLastCapture = capture;
+        session.lastUsedAt = Date.now();
+        return capture;
+      } catch (error) {
+        if (session.closed || this.sessions.get(session.key) !== session) return null;
+        return emptyCapture("error", error instanceof Error ? error.message : "browser preview unavailable");
+      } finally {
+        session.pendingCalls = Math.max(0, session.pendingCalls - 1);
+      }
+    });
   }
 
   async closeSession(scope: BrowserScope): Promise<void> {
@@ -738,7 +856,7 @@ abstract class BrowserTool extends Tool {
     const channel = request?.channel?.trim();
     const chatId = request?.chatId?.trim();
     const workspace = request?.workspace?.trim();
-    if (!sessionKey || !channel || !chatId || !workspace) {
+    if (!request || !sessionKey || !channel || !chatId || !workspace) {
       throw new Error("browser tool requires a trusted chat context");
     }
     return this.manager.callTool(
@@ -750,6 +868,17 @@ abstract class BrowserTool extends Tool {
         workspace,
         readonlyRoots: this.readonlySkillRoots,
       },
+      channel === "websocket"
+        ? {
+            chatId,
+            sessionKey,
+            turnId: typeof request.metadata?.turnId === "string"
+              ? request.metadata.turnId
+              : typeof request.metadata?.turn_id === "string"
+                ? request.metadata.turn_id
+                : null,
+          }
+        : null,
     );
   }
 }

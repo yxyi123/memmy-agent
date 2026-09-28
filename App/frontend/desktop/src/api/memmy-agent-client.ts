@@ -814,6 +814,7 @@ export interface MemmyAgentWebSocketConnection {
   restart(chatId: string): void;
   status(chatId: string): void;
   historyDag(chatId: string): void;
+  requestBrowserPreview(chatId: string, expectedTurnId: string | null, expectedGeneration: number): string;
   onChat(chatId: string, handler: (event: MemmyAgentWsEvent) => void): MemmyAgentUnsubscribe;
   onStatusResult(handler: (chatId: string, content: string) => void): MemmyAgentUnsubscribe;
   onHistoryDagResult(handler: (chatId: string, content: string, payload: HistoryDagPayload) => void): MemmyAgentUnsubscribe;
@@ -1905,6 +1906,17 @@ class MemmyAgentWebSocketSession implements MemmyAgentWebSocketConnection {
     this.queueControl({ type: "history_dag", chat_id: chatId });
   }
 
+  requestBrowserPreview(chatId: string, expectedTurnId: string | null, expectedGeneration: number): string {
+    const requestId = crypto.randomUUID();
+    this.sendOrdinaryFrame({
+      type: "browser_preview_request",
+      chat_id: chatId,
+      request_id: requestId,
+      expected_turn_id: expectedTurnId,
+    }, expectedGeneration);
+    return requestId;
+  }
+
   onChat(chatId: string, handler: (event: MemmyAgentWsEvent) => void): MemmyAgentUnsubscribe {
     let handlers = this.chatHandlers.get(chatId);
     if (!handlers) {
@@ -2507,6 +2519,9 @@ class MemmyAgentWebSocketSession implements MemmyAgentWebSocketConnection {
       }
       return;
     }
+
+    // Preview frames are transient and must never enter the pending chat event queue.
+    if (event.event === "browser_preview") return;
 
     const queue = this.pendingInboundByChat.get(chatId) ?? [];
     queue.push(event);

@@ -8,6 +8,7 @@ import type {
   SteerQueuedMessageResult,
   WebuiQueueSnapshotDescriptor,
 } from "../../core/agent-runtime/loop.js";
+import type { BrowserPreviewCapture } from "../../core/agent-runtime/tools/browser.js";
 import { consumeRestartNoticeFromEnv, formatRestartCompletedMessage } from "../../utils/restart.js";
 import { BaseChannel } from "./base.js";
 import { discoverChannelNames, discoverEnabled, normalizeChannelName } from "./registry.js";
@@ -62,6 +63,7 @@ export class ChannelManager {
   workspacePath: string | null = null;
   cancelActiveTasks: ((sessionKey: string) => Promise<number>) | null = null;
   closeBrowserChat: ((channel: string, chatId: string) => Promise<void>) | null = null;
+  captureBrowserPreview: ((chatId: string, sessionKey: string) => Promise<BrowserPreviewCapture | null>) | null = null;
   goalControlHandler: ((request: any) => Promise<any>) | null = null;
   activeGoalStopHandler: ((sessionKey: string) => Promise<boolean>) | null = null;
   getWebuiQueueSnapshot: ((sessionKey: string) => WebuiQueueSnapshotDescriptor | Promise<WebuiQueueSnapshotDescriptor>) | null = null;
@@ -83,6 +85,7 @@ export class ChannelManager {
       workspacePath?: string | null;
       cancelActiveTasks?: ((sessionKey: string) => Promise<number>) | null;
       closeBrowserChat?: ((channel: string, chatId: string) => Promise<void>) | null;
+      captureBrowserPreview?: ((chatId: string, sessionKey: string) => Promise<BrowserPreviewCapture | null>) | null;
       goalControlHandler?: ((request: any) => Promise<any>) | null;
       activeGoalStopHandler?: ((sessionKey: string) => Promise<boolean>) | null;
       getWebuiQueueSnapshot?: ((sessionKey: string) => WebuiQueueSnapshotDescriptor | Promise<WebuiQueueSnapshotDescriptor>) | null;
@@ -107,6 +110,7 @@ export class ChannelManager {
       : null;
     this.cancelActiveTasks = options.cancelActiveTasks ?? null;
     this.closeBrowserChat = options.closeBrowserChat ?? null;
+    this.captureBrowserPreview = options.captureBrowserPreview ?? null;
     this.goalControlHandler = options.goalControlHandler ?? null;
     this.activeGoalStopHandler = options.activeGoalStopHandler ?? null;
     this.getWebuiQueueSnapshot = options.getWebuiQueueSnapshot ?? null;
@@ -182,6 +186,7 @@ export class ChannelManager {
     }
     if (this.cancelActiveTasks) options.cancelActiveTasks = this.cancelActiveTasks;
     if (this.closeBrowserChat) options.closeBrowserChat = this.closeBrowserChat;
+    if (this.captureBrowserPreview) options.captureBrowserPreview = this.captureBrowserPreview;
     if (this.goalControlHandler) options.goalControlHandler = this.goalControlHandler;
     if (this.activeGoalStopHandler) options.activeGoalStopHandler = this.activeGoalStopHandler;
     if (this.getWebuiQueueSnapshot) options.getWebuiQueueSnapshot = this.getWebuiQueueSnapshot;

@@ -1171,6 +1171,7 @@ export async function gateway({
     webuiModelSelectionResolver: (input) => loop.resolveTurnModelSelection(input),
     cancelActiveTasks: cancelSessionTasks,
     closeBrowserChat: (channel, chatId) => loop.closeBrowserChat(channel, chatId),
+    captureBrowserPreview: (chatId, sessionKey) => loop.captureBrowserPreview(chatId, sessionKey),
     goalControlHandler: (request) => loop.goalRuntime.control(request),
     getWebuiQueueSnapshot: (sessionKey) => loop.getWebuiQueueSnapshot(sessionKey),
     removeQueuedWebuiMessage: (sessionKey, clientRequestId) => (

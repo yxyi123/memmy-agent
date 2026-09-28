@@ -66,6 +66,7 @@ import {
 } from "./agent-command-palette.js";
 import { AgentAttachmentCard, splitAgentAttachmentName } from "./agent-file-attachment-chip.js";
 import { AgentEnvironmentPanel } from "./agent-environment-panel.js";
+import { AgentBrowserPreviewPanel } from "./agent-browser-preview-panel.js";
 import { AgentGoalBar, type AgentGoalControlRequest } from "./agent-goal-bar.js";
 import { AgentQueuedMessageList } from "./agent-queued-message-list.js";
 import { AgentThreadMessages, ChatImageLightbox } from "./agent-thread-messages.js";
@@ -92,7 +93,7 @@ import { HistoryDagPanel, type HistoryDagPanelState } from "./history-dag-panel.
 import { LlmProviderLogo } from "./llm-provider-logo.js";
 import { Mic, Pause, Plus, Send } from "./memory/memory-prototype-icons.js";
 import { resolveWorkspaceEnvironmentScope, useWorkspaceEnvironment } from "./use-workspace-environment.js";
-import { ArrowDown, Check, ChevronDown, Folder, Plus as LucidePlus, RotateCw, SlidersHorizontal, Target, X } from "lucide-react";
+import { ArrowDown, Check, ChevronDown, Folder, Globe2, Plus as LucidePlus, RotateCw, SlidersHorizontal, Target, X } from "lucide-react";
 
 export { agentChatScopeKey, updateComposerDraftForScope };
 export { hydrateAgentThreadInBackground };
@@ -844,6 +845,7 @@ export function HomePage() {
   const [lastCompactionPanel, setLastCompactionPanel] = useState<StatusPanelState>({ open: false });
   const [historyDagPanel, setHistoryDagPanel] = useState<HistoryDagPanelState>({ open: false });
   const [environmentPanelOpen, setEnvironmentPanelOpen] = useState(false);
+  const [browserPreviewOpen, setBrowserPreviewOpen] = useState(false);
   const [isCreatingChat, setIsCreatingChat] = useState(false);
   const [projectPickerOpen, setProjectPickerOpen] = useState(false);
   const [projectPickerOperationId, setProjectPickerOperationId] = useState<string | null>(null);
@@ -2651,6 +2653,18 @@ export function HomePage() {
       onClose={() => setEnvironmentPanelOpen(false)}
     />
   ) : null;
+  const browserPreviewPanel = browserPreviewOpen && state.agent.currentChatId && state.agent.currentSessionKey ? (
+    <AgentBrowserPreviewPanel
+      key={`${state.agent.currentChatId}:${state.agent.currentSessionKey}:${state.agent.connectionGeneration}`}
+      connection={connection}
+      chatId={state.agent.currentChatId}
+      connectionGeneration={state.agent.connectionGeneration}
+      connected={state.agent.connectionStatus === "connected"}
+      activeTurnId={currentActiveTurnId}
+      running={Boolean(state.agent.runStartedAtByChatId[state.agent.currentChatId])}
+      onClose={() => setBrowserPreviewOpen(false)}
+    />
+  ) : null;
 
   return (
     <AppFrame
@@ -2663,6 +2677,21 @@ export function HomePage() {
             </span>
             {hasActiveConversation && activeImTitleDisplay ? <ImChannelTitleIcon slug={activeImTitleDisplay.slug} name={activeImTitleDisplay.channelName} /> : null}
           </h1>
+          {hasActiveConversation ? (
+            <button
+              type="button"
+              className={`agent-environment-toggle${browserPreviewOpen ? " agent-environment-toggle--active" : ""}`}
+              aria-label={t("home.browserPreview.title")}
+              aria-pressed={browserPreviewOpen}
+              title={t("home.browserPreview.title")}
+              onClick={() => {
+                setBrowserPreviewOpen((open) => !open);
+                setEnvironmentPanelOpen(false);
+              }}
+            >
+              <Globe2 size={16} aria-hidden="true" />
+            </button>
+          ) : null}
           <button
             type="button"
             className={`agent-environment-toggle${environmentPanelOpen ? " agent-environment-toggle--active" : ""}`}
@@ -2670,7 +2699,10 @@ export function HomePage() {
             aria-label={t("home.environment.title")}
             aria-pressed={environmentPanelOpen}
             title={t("home.environment.title")}
-            onClick={() => setEnvironmentPanelOpen((open) => !open)}
+            onClick={() => {
+              setEnvironmentPanelOpen((open) => !open);
+              setBrowserPreviewOpen(false);
+            }}
           >
             <SlidersHorizontal size={16} aria-hidden="true" />
           </button>
@@ -2679,7 +2711,7 @@ export function HomePage() {
       topBarBorder={Boolean(hasActiveConversation || environmentScope)}
       windowsTitlebarSafe={Boolean(hasActiveConversation || environmentScope)}
     >
-      <div className={`agent-workspace-layout${environmentPanelOpen ? " agent-workspace-layout--environment-open" : ""}`}>
+      <div className={`agent-workspace-layout${environmentPanelOpen ? " agent-workspace-layout--environment-open" : ""}${browserPreviewOpen ? " agent-workspace-layout--browser-preview-open" : ""}`}>
         {!hasActiveConversation ? (
         <section className="app-frame-page-content home-empty-screen flex flex-col items-center justify-center h-full">
           <div className="text-center mb-8">
@@ -3002,6 +3034,7 @@ export function HomePage() {
         </section>
         )}
         {environmentPanel}
+        {browserPreviewPanel}
       </div>
     </AppFrame>
   );

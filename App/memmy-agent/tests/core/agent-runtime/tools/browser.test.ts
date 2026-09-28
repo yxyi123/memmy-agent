@@ -41,7 +41,16 @@ const READ_ONLY_TOOLS = new Set([
 
 type FakeRuntimeState = {
   launches: number;
-  contexts: Array<{ id: number; close: ReturnType<typeof vi.fn> }>;
+  contexts: Array<{
+    id: number;
+    close: ReturnType<typeof vi.fn>;
+    page: {
+      url: ReturnType<typeof vi.fn>;
+      screenshot: ReturnType<typeof vi.fn>;
+    };
+    pages: ReturnType<typeof vi.fn>;
+  }>;
+  selectedTabIndex: number;
   connections: number;
   connectionConfigs: Array<Record<string, any>>;
   calls: Array<{ contextId: number; name: string; arguments: Record<string, any> }>;
@@ -94,6 +103,7 @@ function fakeRuntime(
   const state: FakeRuntimeState = {
     launches: 0,
     contexts: [],
+    selectedTabIndex: 0,
     connections: 0,
     connectionConfigs: [],
     calls: [],
@@ -114,9 +124,17 @@ function fakeRuntime(
         return {
           isConnected: () => connected,
           newContext: vi.fn(async () => {
+            const page = {
+              url: vi.fn(() => "https://example.test/current"),
+              title: vi.fn(async () => "Current page"),
+              screenshot: vi.fn(async () => Buffer.from("preview-frame")),
+              isClosed: vi.fn(() => false),
+            };
             const context = {
               id: ++nextContextId,
               close: vi.fn(async () => undefined),
+              page,
+              pages: vi.fn(() => [page]),
             };
             state.contexts.push(context);
             return context;
@@ -172,6 +190,11 @@ function fakeRuntime(
               ],
             };
           }
+          if (name === "browser_tabs") {
+            return {
+              content: [{ type: "text", text: `- ${state.selectedTabIndex}: (current) [Current page](https://example.test/current)` }],
+            };
+          }
           if (args.fail) {
             return {
               isError: true,
@@ -224,6 +247,60 @@ afterEach(async () => {
 });
 
 describe("BrowserSessionManager", () => {
+  it("previews only the owning chat's selected page and limits frame capture to one per second", async () => {
+    const { manager, state } = await createManager(tmpRoot());
+    const scope = { sessionKey: "session-a", channel: "websocket", chatId: "chat-a" };
+    const owner = { sessionKey: "session-a", chatId: "chat-a", turnId: "turn-a" };
+    await manager.callTool(scope, "browser_snapshot", {}, null, null, owner);
+
+    const first = await manager.capturePreview("chat-a", "session-a");
+    expect(first).toMatchObject({
+      status: "ready",
+      url: "https://example.test/current",
+      title: "Current page",
+      sequence: 1,
+      turnId: "turn-a",
+      imageDataUrl: `data:image/jpeg;base64,${Buffer.from("preview-frame").toString("base64")}`,
+    });
+    expect(await manager.capturePreview("chat-a", "session-a")).toEqual(first);
+    expect(state.contexts[1]!.page.screenshot).toHaveBeenCalledTimes(1);
+    expect(state.contexts[1]!.page.screenshot).toHaveBeenCalledWith({
+      type: "jpeg", quality: 65, scale: "css", timeout: 5_000,
+    });
+    expect(await manager.capturePreview("chat-b", "session-a")).toBeNull();
+    expect(await manager.capturePreview("chat-a", "session-b")).toBeNull();
+
+    state.contexts[1]!.pages.mockReturnValue([]);
+    expect(await manager.capturePreview("chat-a", "session-a")).toBeNull();
+
+    await manager.closeSession(scope);
+    expect(await manager.capturePreview("chat-a", "session-a")).toBeNull();
+  });
+
+  it("captures the MCP-selected tab rather than another page in the same context", async () => {
+    const { manager, state } = await createManager(tmpRoot());
+    const scope = { sessionKey: "session-a", channel: "websocket", chatId: "chat-a" };
+    await manager.callTool(scope, "browser_snapshot", {}, null, null, {
+      sessionKey: "session-a", chatId: "chat-a", turnId: "turn-a",
+    });
+    const context = state.contexts[1]!;
+    const selectedPage = {
+      url: vi.fn(() => "https://example.test/current"),
+      title: vi.fn(async () => "Selected page"),
+      screenshot: vi.fn(async () => Buffer.from("selected")),
+      isClosed: vi.fn(() => false),
+    };
+    context.pages.mockReturnValue([context.page, selectedPage]);
+    state.selectedTabIndex = 1;
+
+    expect(await manager.capturePreview("chat-a", "session-a")).toMatchObject({
+      status: "ready",
+      title: "Selected page",
+      imageDataUrl: `data:image/jpeg;base64,${Buffer.from("selected").toString("base64")}`,
+    });
+    expect(context.page.screenshot).not.toHaveBeenCalled();
+    expect(selectedPage.screenshot).toHaveBeenCalledOnce();
+  });
   it("probes once and exposes only narrowed allowlisted schemas", async () => {
     const { manager, state } = await createManager(tmpRoot());
 

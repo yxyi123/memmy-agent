@@ -49,6 +49,60 @@ async function nextInbound(bus: MessageBus) {
 }
 
 describe("WebSocket integration", () => {
+  it("returns a transient browser preview only to its attached chat requester", async () => {
+    const { channel, port } = await startChannel();
+    const capture = vi.fn(async () => ({
+      sessionId: "preview-session",
+      pageId: "page-a",
+      sequence: 1,
+      capturedAt: 123,
+      url: "https://example.test/current",
+      title: "Current page",
+      status: "ready" as const,
+      imageDataUrl: "data:image/jpeg;base64,cHJldmlldw==",
+      turnId: null,
+    }));
+    channel.captureBrowserPreview = capture;
+
+    await withClient(port, "preview-requester", async (client) => {
+      const ready = await client.recvReady();
+      const requestId = crypto.randomUUID();
+      await client.sendJson({
+        type: "browser_preview_request",
+        chat_id: ready.chatId,
+        request_id: requestId,
+        expected_turn_id: null,
+      });
+      const response = await client.recv();
+      expect(response.raw).toMatchObject({
+        event: "browser_preview",
+        chat_id: ready.chatId,
+        request_id: requestId,
+        turn_id: null,
+        status: "ready",
+        session_id: "preview-session",
+        page_id: "page-a",
+        image_data_url: "data:image/jpeg;base64,cHJldmlldw==",
+      });
+      expect(capture).toHaveBeenCalledWith(ready.chatId, `websocket:${ready.chatId}`);
+
+      capture.mockRejectedValueOnce(new Error("capture failed"));
+      const failedRequestId = crypto.randomUUID();
+      await client.sendJson({
+        type: "browser_preview_request",
+        chat_id: ready.chatId,
+        request_id: failedRequestId,
+        expected_turn_id: null,
+      });
+      expect((await client.recv()).raw).toMatchObject({
+        event: "browser_preview",
+        chat_id: ready.chatId,
+        request_id: failedRequestId,
+        status: "error",
+      });
+    });
+  });
+
   it("wraps raw websocket client messages with runtime helper compatible accessors", () => {
     const msg = new WsMessage("message", {
       event: "message",
