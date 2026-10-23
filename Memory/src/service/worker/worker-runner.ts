@@ -33,7 +33,7 @@ import {
   embeddingRetryBackoffMs,
   embeddingRetryToRunItem
 } from "../embedding/embedding-pipeline.js";
-import { memoryNeedsImportSummary, summaryProcessingJobType } from "../import/import-job-processor.js";
+import { captureDecisionJobPayload, memoryNeedsImportSummary, summaryProcessingJobType } from "../import/import-job-processor.js";
 import {
   classifyProcessingError,
   type EnqueueJobInput,
@@ -259,6 +259,7 @@ export class WorkerRunner {
             targetMemoryId: memory.id,
             payload: {
               source: "startup.processing_repair",
+              ...captureDecisionJobPayload(memory, jobType),
               ...observationJobPayload(memory)
             },
             maxAttempts: 3,
@@ -329,6 +330,7 @@ export class WorkerRunner {
           targetMemoryId: memory.id,
           payload: {
             source: "startup.placeholder_summary_repair",
+            ...captureDecisionJobPayload(memory, jobType),
             ...observationJobPayload(memory)
           },
           maxAttempts: 3,

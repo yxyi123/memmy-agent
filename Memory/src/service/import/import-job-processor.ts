@@ -409,9 +409,9 @@ export class ImportJobProcessor {
     const result = d.transaction(() => {
       const latest = d.processing.get(memoryId);
       if (!latest || latest.state !== "failed" || !latest.stage) return latest ? { accepted: false, processing: latest } : undefined;
-      const summaryJobType = summaryProcessingJobType(memory);
-      const job = d.enqueueJob({ jobType: latest.stage === "summary" ? summaryJobType : "embedding", userId: memory.userId,
-        sessionId: memory.sessionId, targetMemoryId: memory.id, payload: { source: "memory.processing.manual_retry", previousErrorCode: latest.errorCode ?? undefined, ...observationJobPayload(memory), ...externalSkillJobPayload(memory) },
+      const jobType = latest.stage === "summary" ? summaryProcessingJobType(memory) : "embedding";
+      const job = d.enqueueJob({ jobType, userId: memory.userId,
+        sessionId: memory.sessionId, targetMemoryId: memory.id, payload: { source: "memory.processing.manual_retry", previousErrorCode: latest.errorCode ?? undefined, ...captureDecisionJobPayload(memory, jobType), ...observationJobPayload(memory), ...externalSkillJobPayload(memory) },
         maxAttempts: latest.stage === "summary" ? 3 : 6, createdAt: at });
       const processing = d.processing.save({ ...latest, state: latest.stage === "summary" ? "summary_pending" : "embedding_pending", activeJobId: job.id,
         attemptCount: 0, manualRetryCount: latest.manualRetryCount + 1, retryAction: "retry", updatedAt: at });
@@ -460,7 +460,7 @@ export class ImportJobProcessor {
         if (!current || current.state !== "failed" || !current.stage || current.retryAction === "none") return undefined;
         const jobType = current.stage === "summary" ? summaryProcessingJobType(memory) : "embedding";
         const job = d.enqueueJob({ jobType, userId: memory.userId, sessionId: memory.sessionId, targetMemoryId: memory.id,
-          payload: { source: "memory.processing.lifecycle_retry", previousErrorCode: current.errorCode ?? undefined, ...observationJobPayload(memory), ...externalSkillJobPayload(memory) },
+          payload: { source: "memory.processing.lifecycle_retry", previousErrorCode: current.errorCode ?? undefined, ...captureDecisionJobPayload(memory, jobType), ...observationJobPayload(memory), ...externalSkillJobPayload(memory) },
           maxAttempts: current.stage === "summary" ? 3 : 6, createdAt: at });
         const processing = d.processing.save({ ...current, state: current.stage === "summary" ? "summary_pending" : "embedding_pending", activeJobId: job.id,
           attemptCount: 0, retryAction: "retry", updatedAt: at });
@@ -493,6 +493,14 @@ export function memoryHasImportPipeline(memory: MemoryRow): boolean {
 
 export function summaryProcessingJobType(memory: MemoryRow): JobType {
   return isObservationMemory(memory) ? "observation_extract" : memoryHasImportPipeline(memory) ? "import_summary" : "trace_summary";
+}
+
+export function captureDecisionJobPayload(memory: MemoryRow, jobType: JobType): { decideCapture?: true } {
+  const decision = memory.properties.internal_info.capture_decision;
+  // Rebuilt jobs must finish the persisted L1 decision before ordinary summarization.
+  return jobType === "trace_summary" && memory.memoryLayer === "L1" && isRecord(decision) && decision.status === "pending"
+    ? { decideCapture: true }
+    : {};
 }
 
 export function memoryNeedsImportSummary(memory: MemoryRow): boolean {

@@ -22,7 +22,7 @@ import {
   embeddingRetryVectorFieldForMemory
 } from "../embedding/embedding-pipeline.js";
 import { episodeTitleIsCurrent } from "../episode-title/episode-title-service.js";
-import { memoryHasImportPipeline } from "../import/import-job-processor.js";
+import { captureDecisionJobPayload, memoryHasImportPipeline } from "../import/import-job-processor.js";
 import { observationMemoryState } from "../observation-memory-state.js";
 import { isTerminalL3WorldModelError } from "../evolution/l3-world-model-pipeline.js";
 import {
@@ -519,7 +519,7 @@ export function enqueueImportSummaryIfMissing(
       userId: memory.userId,
       sessionId: memory.sessionId,
       targetMemoryId: memory.id,
-      payload: { source: "worker.embedding.summary_guard", contentHash: memory.contentHash },
+      payload: { source: "worker.embedding.summary_guard", contentHash: memory.contentHash, ...captureDecisionJobPayload(memory, jobType) },
       maxAttempts: 3,
       createdAt: at
     });
